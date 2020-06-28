@@ -12,17 +12,21 @@ from sqlalchemy import LargeBinary
 from sqlalchemy import String
 from sqlalchemy import UniqueConstraint
 
+from optjournal._operation import _Operation
+
 _BaseModel = declarative_base()  # type: Any
 
 
 class StudyModel(_BaseModel):
     __tablename__ = "studies"
+    __table_args__ = (UniqueConstraint("name"),)
     id = Column(Integer, primary_key=True)
+    name = Column(String(256), index=True, nullable=False)
 
 
 class OperationModel(_BaseModel):
     __tablename__ = "operations"
     id = Column(Integer, primary_key=True)
     study_id = Column(Integer, ForeignKey("studies.id"), index=True, nullable=False)
-    kind = Column(Enum(Operation), nullable=False)
-    data = Column(LargeBinary, nullable=False)
+    kind = Column(Enum(_Operation), nullable=False)
+    data = Column(String(1024), nullable=False)
