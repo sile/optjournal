@@ -1,3 +1,4 @@
+import copy
 import json
 from typing import Any
 from typing import Callable
@@ -7,6 +8,7 @@ from typing import Optional
 from typing import Tuple
 import uuid
 
+from sqlalchemy import asc
 from sqlalchemy.engine import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy import orm
@@ -45,6 +47,9 @@ class RDBJournalStorage(BaseStorage):
         self._delete_model(cls, (cls.id == study_id,))
 
     def _sync(self, study_id) -> None:
+        if study_id not in self._studies:
+            self._studies[study_id] = _StudyState(study_id)
+
         session = self._scoped_session()
         try:
             for model in self._buffer:
@@ -55,8 +60,22 @@ class RDBJournalStorage(BaseStorage):
             session.rollback()
             raise
 
-        # TODO: read from database
-        raise NotImplementedError
+        session = self._scoped_session()
+        try:
+            cls = _models.OperationModel
+            models = (
+                session.query(cls)
+                .filter(cls.study_id == study_id, cls.id >= self._studies[study_id].next_op_id)
+                .order_by(asc(cls.id))
+                .all()
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+
+        for model in models:
+            self._studies[study_id].execute(model.id, model.kind, json.loads(model.data))
 
     def _enqueue(self, study_id: int, kind: _Operation, data: Dict[str, Any]) -> None:
         model = _models.OperationModel(study_id=study_id, kind=kind, data=json.dumps(data))
@@ -212,7 +231,10 @@ class RDBJournalStorage(BaseStorage):
         return trial
 
     def get_all_trials(self, study_id: int, deepcopy: bool = True) -> List["FrozenTrial"]:
-        return self._get_trials(study_id)
+        if deepcopy:
+            return copy.deepcopy(self._studies[study_id].trials)
+        else:
+            return self._studies[study_id].trials[:]
 
     # def get_best_trial(self, study_id: int) -> "FrozenTrial":
     #     raise NotImplementedError
