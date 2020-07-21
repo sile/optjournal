@@ -1,5 +1,6 @@
 import copy
 import json
+import threading
 from typing import Any
 from typing import Callable
 from typing import Dict
@@ -8,32 +9,25 @@ from typing import Optional
 from typing import Tuple
 import uuid
 
-from sqlalchemy import asc
-from sqlalchemy.engine import create_engine
-from sqlalchemy.engine import Engine
-from sqlalchemy import orm
-
 import optuna
 from optuna import study
 from optuna.storages import BaseStorage
 from optuna.trial import TrialState
 
 from optjournal._db import _Database
+from optjournal import _id
 from optjournal._operation import _Operation
 from optjournal import _models
-from optjournal._models import _BaseModel
-from optjournal._study import _StudyState
-
-MAX_TRIAL_NUM = 1000000
+from optjournal._study import _Study
 
 
 class RDBJournalStorage(BaseStorage):
     def __init__(self, database_url: str) -> None:
         self._db = _Database(database_url)
-
-        self._studies = {}  # type: Dict[int, _StudyState]
-        self._buffer = []  # type: List[_models.OperationModel]
-        self._worker_id = str(uuid.uuid4())
+        self._studies = {}  # type: Dict[int, _Study]
+        self._buffered_ops = []  # type: List[_models.OperationModel]
+        self._worker_ids = {}  # type: Dict[int, str]
+        self._lock = threading.Lock()
 
     def create_new_study(self, study_name: Optional[str] = None) -> int:
         if study_name is None:
@@ -47,36 +41,27 @@ class RDBJournalStorage(BaseStorage):
         if study is None:
             raise KeyError("No such study: id={}.".format(study_id))
 
-    def _sync(self, study_id) -> None:
-        if study_id not in self._studies:
-            self._studies[study_id] = _StudyState(study_id)
-
-        # Write operations.
-        self._db.append_operations(self._buffer)
-        self._buffer = []
-
-        # Read operations.
-        ops = self._db.read_operations(study_id, self._studies[study_id].next_op_id)
-        for op in ops:
-            self._studies[study_id].execute(op.id, op.kind, json.loads(op.data))
-
-    def _enqueue(self, study_id: int, kind: _Operation, data: Dict[str, Any]) -> None:
-        model = _models.OperationModel(study_id=study_id, kind=kind, data=json.dumps(data))
-        self._buffer.append(model)
+        if study_id in self._studies:
+            del self._studies[study_id]
 
     def set_study_user_attr(self, study_id: int, key: str, value: Any) -> None:
-        self._enqueue(study_id, _Operation.SET_STUDY_USER_ATTR, {"key": key, "value": value})
+        self._enqueue_op(study_id, _Operation.SET_STUDY_USER_ATTR, {"key": key, "value": value})
         self._sync(study_id)
 
     def set_study_system_attr(self, study_id: int, key: str, value: Any) -> None:
-        self._enqueue(study_id, _Operation.SET_STUDY_SYSTEM_ATTR, {"key": key, "value": value})
+        self._enqueue_op(study_id, _Operation.SET_STUDY_SYSTEM_ATTR, {"key": key, "value": value})
         self._sync(study_id)
 
     def set_study_direction(self, study_id: int, direction: study.StudyDirection) -> None:
-        # TODO(sile): Validation.
-
-        self._enqueue(study_id, _Operation.SET_STUDY_DIRECTION, {"direction": direction.value})
+        self._enqueue_op(study_id, _Operation.SET_STUDY_DIRECTION, {"direction": direction.value})
         self._sync(study_id)
+
+        if self._studies[study_id].direction != direction:
+            raise ValueError(
+                "The direction of the study {} has already been set to {}, not {}.".format(
+                    study_id, self._studies[study_id].direction, direction
+                )
+            )
 
     def get_study_id_from_name(self, study_name: str) -> int:
         study = self._db.find_study_by_name(study_name)
@@ -86,7 +71,7 @@ class RDBJournalStorage(BaseStorage):
         return study.id
 
     def get_study_id_from_trial_id(self, trial_id: int) -> int:
-        raise NotImplementedError
+        return _id.get_study_id(trial_id)
 
     def get_study_name_from_id(self, study_id: int) -> str:
         study = self._db.find_study(study_id)
@@ -104,7 +89,7 @@ class RDBJournalStorage(BaseStorage):
         return self._studies[study_id].direction
 
     def get_n_trials(self, study_id: int) -> int:
-        raise NotImplementedError
+        return len(self.get_all_trials(study_id, deepcopy=False))
 
     def get_study_user_attrs(self, study_id: int) -> Dict[str, Any]:
         self._sync(study_id)
@@ -124,22 +109,19 @@ class RDBJournalStorage(BaseStorage):
             raise NotImplementedError
 
         data = {"worker": self._worker_id}
-        self._enqueue(study_id, _Operation.CREATE_TRIAL, data)
+        self._enqueue_op(study_id, _Operation.CREATE_TRIAL, data)
         self._sync(study_id)
 
         for trial in reversed(self._studies[study_id].trials):
             if trial.owner == self._worker_id:
                 return trial._trial_id
 
-    def _get_study_id(self, trial_id: int) -> int:
-        return trial_id // MAX_TRIAL_NUM
-
     def set_trial_state(self, trial_id: int, state: TrialState) -> bool:
         # TODO(sile): validate
 
-        study_id = self._get_study_id(trial_id)
+        study_id = _id.get_study_id(trial_id)
         data = {"trial_id": trial_id, "state": state.value, "worker": self._worker_id}
-        self._enqueue(study_id, _Operation.SET_TRIAL_STATE, data)
+        self._enqueue_op(study_id, _Operation.SET_TRIAL_STATE, data)
         self._sync(study_id)
 
         trial = self.get_trial(trial_id)
@@ -159,7 +141,7 @@ class RDBJournalStorage(BaseStorage):
         if param_name in trial.params:
             return False
 
-        study_id = self._get_study_id(trial_id)
+        study_id = _id.get_study_id(trial_id)
         param_value = distribution.to_external_repr(param_value_internal)
         trial.params[param_name] = param_value
         trial.distributions[param_name] = distribution
@@ -170,7 +152,7 @@ class RDBJournalStorage(BaseStorage):
             "value": param_value,
             "distribution": optuna.distributions.distribution_to_json(distribution),
         }
-        self._enqueue(study_id, _Operation.SET_TRIAL_PARAM, data)
+        self._enqueue_op(study_id, _Operation.SET_TRIAL_PARAM, data)
         return True
 
     def get_trial_number_from_id(self, trial_id: int) -> int:
@@ -183,9 +165,9 @@ class RDBJournalStorage(BaseStorage):
     def set_trial_value(self, trial_id: int, value: float) -> None:
         # TODO(ohta): validation
 
-        study_id = self._get_study_id(trial_id)
+        study_id = _id.get_study_id(trial_id)
         data = {"trial_id": trial_id, "value": value}
-        self._enqueue(study_id, _Operation.SET_TRIAL_VALUE, data)
+        self._enqueue_op(study_id, _Operation.SET_TRIAL_VALUE, data)
         self._sync(study_id)
 
     def set_trial_intermediate_value(
@@ -193,23 +175,23 @@ class RDBJournalStorage(BaseStorage):
     ) -> bool:
         # TODO(ohta): validation
 
-        study_id = self._get_study_id(trial_id)
+        study_id = _id.get_study_id(trial_id)
         data = {"trial_id": trial_id, "value": intermediate_value, "step": step}
-        self._enqueue(study_id, _Operation.SET_TRIAL_INTERMEDIATE_VALUE, data)
+        self._enqueue_op(study_id, _Operation.SET_TRIAL_INTERMEDIATE_VALUE, data)
         self._sync(study_id)
 
         return True
 
     def set_trial_user_attr(self, trial_id: int, key: str, value: Any) -> None:
-        study_id = self._get_study_id(trial_id)
+        study_id = _id.get_study_id(trial_id)
         data = {"trial_id": trial_id, "key": key, "value": value}
-        self._enqueue(study_id, _Operation.SET_TRIAL_USER_ATTR, data)
+        self._enqueue_op(study_id, _Operation.SET_TRIAL_USER_ATTR, data)
         self._sync(study_id)
 
     def set_trial_system_attr(self, trial_id: int, key: str, value: Any) -> None:
-        study_id = self._get_study_id(trial_id)
+        study_id = _id.get_study_id(trial_id)
         data = {"trial_id": trial_id, "key": key, "value": value}
-        self._enqueue(study_id, _Operation.SET_TRIAL_SYSTEM_ATTR, data)
+        self._enqueue_op(study_id, _Operation.SET_TRIAL_SYSTEM_ATTR, data)
         self._sync(study_id)
 
     def get_trial(self, trial_id: int) -> "FrozenTrial":
@@ -217,13 +199,47 @@ class RDBJournalStorage(BaseStorage):
         return self._studies[study_id].trials[trial_id % MAX_TRIAL_NUM]
 
     def get_all_trials(self, study_id: int, deepcopy: bool = True) -> List["FrozenTrial"]:
-        if deepcopy:
-            return copy.deepcopy(self._studies[study_id].trials)
-        else:
-            return self._studies[study_id].trials[:]
+        if study_id not in self._studies:
+            self._sync(study_id)
 
-    # def get_best_trial(self, study_id: int) -> "FrozenTrial":
-    #     raise NotImplementedError
+        with self._lock:
+            if deepcopy:
+                return copy.deepcopy(self._studies[study_id].trials)
+            else:
+                return self._studies[study_id].trials[:]
+
+    def get_best_trial(self, study_id: int) -> "FrozenTrial":
+        raise NotImplementedError
 
     def read_trials_from_remote_storage(self, study_id: int) -> None:
         self._sync(study_id)
+
+    def _sync(self, study_id) -> None:
+        with self._lock:
+            if study_id not in self._studies:
+                if self._db.find_study(study_id) is None:
+                    raise KeyError("No such study: id={}.".format(study_id))
+
+                self._studies[study_id] = _Study(study_id)
+
+            # Write operations.
+            self._db.append_operations(self._buffered_ops)
+            self._buffered_ops = []
+
+            # Read operations.
+            ops = self._db.read_operations(study_id, self._studies[study_id].next_op_id)
+            for op in ops:
+                self._studies[study_id].execute(op.id, op.kind, json.loads(op.data))
+
+    # Lock-free internal methods.
+    def _worker_id(self) -> str:
+        if threading.get_ident() not in self._worker_ids:
+            self._worker_ids[threading.get_ident()] = str(uuid.uuid4())
+
+        return self._worker_ids[threading.get_ident()]
+
+    def _enqueue_op(self, study_id: int, kind: _Operation, data: Dict[str, Any]) -> None:
+        model = _models.OperationModel(
+            study_id=study_id, kind=kind, data=json.dumps(data), worker_id=self._worker_id()
+        )
+        self._buffered_ops.append(model)

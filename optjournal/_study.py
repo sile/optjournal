@@ -49,7 +49,7 @@ class _Trial(optuna.trial.FrozenTrial):
         return self._trial_id // MAX_TRIAL_NUM
 
 
-class _StudyState(object):
+class _Study(object):
     def __init__(self, study_id: int) -> None:
         self.study_id = study_id
         self.next_op_id = 0
