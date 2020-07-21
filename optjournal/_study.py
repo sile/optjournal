@@ -70,7 +70,7 @@ class _StudyState(object):
                 number=number,
                 state=TrialState.RUNNING,
                 value=None,
-                datetime_start=datetime.now(),
+                datetime_start=datetime.now(),  # TODO: data["datetime_start"]
                 datetime_complete=None,
                 params={},
                 distributions={},
@@ -103,7 +103,9 @@ class _StudyState(object):
 
             self.trials[number].state = state
             if state.is_finished():
-                self.trials[number].datetime_complete = datetime.now()
+                self.trials[
+                    number
+                ].datetime_complete = datetime.now()  # TODO: data["datetime_complete"]
             if state == TrialState.RUNNING:
                 self.trials[number].owner = data["worker"]
         elif kind == _Operation.SET_TRIAL_SYSTEM_ATTR:

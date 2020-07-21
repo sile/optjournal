@@ -18,6 +18,7 @@ from optuna import study
 from optuna.storages import BaseStorage
 from optuna.trial import TrialState
 
+from optjournal._db import _Database
 from optjournal._operation import _Operation
 from optjournal import _models
 from optjournal._models import _BaseModel
@@ -28,9 +29,7 @@ MAX_TRIAL_NUM = 1000000
 
 class RDBJournalStorage(BaseStorage):
     def __init__(self, database_url: str) -> None:
-        self._engine = create_engine(database_url)
-        self._scoped_session = orm.scoped_session(orm.sessionmaker(bind=self._engine))
-        _BaseModel.metadata.create_all(self._engine)
+        self._db = _Database(database_url)
 
         self._studies = {}  # type: Dict[int, _StudyState]
         self._buffer = []  # type: List[_models.OperationModel]
@@ -40,44 +39,26 @@ class RDBJournalStorage(BaseStorage):
         if study_name is None:
             study_name = str(uuid.uuid4())  # TODO: Align to Optuna's logic.
 
-        model = _models.StudyModel(name=study_name)
-        self._insert_model(model)
-        return model.id
+        study = self._db.create_study(study_name)
+        return study.id
 
     def delete_study(self, study_id: int) -> None:
-        cls = _models.StudyModel
-        self._delete_model(cls, (cls.id == study_id,))
+        study = self._db.delete_study(study_id)
+        if study is None:
+            raise KeyError("No such study: id={}.".format(study_id))
 
     def _sync(self, study_id) -> None:
         if study_id not in self._studies:
             self._studies[study_id] = _StudyState(study_id)
 
-        session = self._scoped_session()
-        try:
-            for model in self._buffer:
-                session.add(model)
-            session.commit()
-            self._buffer = []
-        except Exception:
-            session.rollback()
-            raise
+        # Write operations.
+        self._db.append_operations(self._buffer)
+        self._buffer = []
 
-        session = self._scoped_session()
-        try:
-            cls = _models.OperationModel
-            models = (
-                session.query(cls)
-                .filter(cls.study_id == study_id, cls.id >= self._studies[study_id].next_op_id)
-                .order_by(asc(cls.id))
-                .all()
-            )
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-
-        for model in models:
-            self._studies[study_id].execute(model.id, model.kind, json.loads(model.data))
+        # Read operations.
+        ops = self._db.read_operations(study_id, self._studies[study_id].next_op_id)
+        for op in ops:
+            self._studies[study_id].execute(op.id, op.kind, json.loads(op.data))
 
     def _enqueue(self, study_id: int, kind: _Operation, data: Dict[str, Any]) -> None:
         model = _models.OperationModel(study_id=study_id, kind=kind, data=json.dumps(data))
@@ -98,21 +79,21 @@ class RDBJournalStorage(BaseStorage):
         self._sync(study_id)
 
     def get_study_id_from_name(self, study_name: str) -> int:
-        cls = _models.StudyModel
-        model = self._find_model(cls, (cls.name == study_name,))
-        assert model is not None
+        study = self._db.find_study_by_name(study_name)
+        if study is None:
+            raise KeyError("No such study: name={}.".format(study_name))
 
-        return model.id
+        return study.id
 
     def get_study_id_from_trial_id(self, trial_id: int) -> int:
         raise NotImplementedError
 
     def get_study_name_from_id(self, study_id: int) -> str:
-        cls = _models.StudyModel
-        model = self._find_model(cls, (cls.id == study_id,))
-        assert model is not None
+        study = self._db.find_study(study_id)
+        if study is None:
+            raise KeyError("No such study: id={}.".format(study_id))
 
-        return model.name
+        return study.name
 
     def get_study_direction(self, study_id: int) -> study.StudyDirection:
         if study_id in self._studies:
@@ -246,59 +227,3 @@ class RDBJournalStorage(BaseStorage):
 
     def read_trials_from_remote_storage(self, study_id: int) -> None:
         self._sync(study_id)
-
-    # def remove_session(self) -> None:
-    #     raise NotImplementedError
-
-    def _insert_model(self, model: _BaseModel) -> None:
-        try:
-            session = self._scoped_session()
-            session.add(model)
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-
-    def _find_model(self, cls: type, conditions: Tuple[Any, ...]) -> Optional[_BaseModel]:
-        session = self._scoped_session()
-
-        model = session.query(cls).filter(*conditions).one_or_none()
-
-        try:
-            session.commit()
-            return model
-        except Exception:
-            session.rollback()
-            raise
-
-    def _update_model(
-        self, cls: type, conditions: Tuple[Any, ...], update_fn: Callable[[_BaseModel], None]
-    ):
-        session = self._scoped_session()
-
-        model = session.query(cls).filter(*conditions).with_for_update().one_or_none()
-        if model is None:
-            model = cls()
-        update_fn(model)
-
-        try:
-            session.add(model)
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-
-    def _delete_model(self, cls: type, conditions: Tuple[Any, ...]):
-        session = self._scoped_session()
-
-        model = session.query(cls).filter(*conditions).one_or_none()
-        if model is None:
-            session.commit()
-            return None
-
-        try:
-            session.delete(model)
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise

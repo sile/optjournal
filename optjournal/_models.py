@@ -30,3 +30,4 @@ class OperationModel(_BaseModel):
     study_id = Column(Integer, ForeignKey("studies.id"), index=True, nullable=False)
     kind = Column(Enum(_Operation), nullable=False)
     data = Column(String(1024), nullable=False)
+    # TODO: worker = Column(String(64), nullable=False)
