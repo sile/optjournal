@@ -1,9 +1,15 @@
+from datetime import datetime
 from typing import Any
 from typing import Dict
+from typing import Optional
 
 import optuna
+from optuna import distributions
+from optuna.trial import TrialState
 
 from optjournal._operation import _Operation
+
+MAX_TRIAL_NUM = 1000000
 
 
 class _Trial(optuna.trial.FrozenTrial):
@@ -20,8 +26,27 @@ class _Trial(optuna.trial.FrozenTrial):
         system_attrs,  # type: Dict[str, Any]
         intermediate_values,  # type: Dict[int, float]
         trial_id,  # type: int
+        owner: str,
     ) -> None:
-        pass
+        super().__init__(
+            number=number,
+            state=state,
+            value=value,
+            datetime_start=datetime_start,
+            datetime_complete=datetime_complete,
+            params=params,
+            distributions=distributions,
+            user_attrs=user_attrs,
+            system_attrs=system_attrs,
+            intermediate_values=intermediate_values,
+            trial_id=trial_id,
+        )
+
+        self.owner = owner
+
+    @property
+    def study_id(self) -> int:
+        return self._trial_id // MAX_TRIAL_NUM
 
 
 class _StudyState(object):
@@ -37,6 +62,49 @@ class _StudyState(object):
         if kind == _Operation.SET_STUDY_DIRECTION:
             self.direction = optuna.study.StudyDirection(data["direction"])
         elif kind == _Operation.CREATE_TRIAL:
-            raise NotImplementedError("kind={}, data={}".format(kind, data))
+            number = len(self.trials)
+            trial_id = self.study_id * MAX_TRIAL_NUM + number
+
+            trial = _Trial(
+                trial_id=trial_id,
+                number=number,
+                state=TrialState.RUNNING,
+                value=None,
+                datetime_start=datetime.now(),
+                datetime_complete=None,
+                params={},
+                distributions={},
+                user_attrs={},
+                system_attrs={},
+                intermediate_values={},
+                owner=data["worker"],
+            )
+            self.trials.append(trial)
+        elif kind == _Operation.SET_TRIAL_PARAM:
+            # TODO: owner check
+            number = data["trial_id"] % MAX_TRIAL_NUM
+            name = data["name"]
+
+            self.trials[number].params[name] = data["value"]
+            self.trials[number].distributions[name] = distributions.json_to_distribution(
+                data["distribution"]
+            )
+        elif kind == _Operation.SET_TRIAL_VALUE:
+            # TODO: owner check
+            number = data["trial_id"] % MAX_TRIAL_NUM
+            self.trials[number].value = data["value"]
+        elif kind == _Operation.SET_TRIAL_STATE:
+            # TODO: owner check
+            number = data["trial_id"] % MAX_TRIAL_NUM
+            state = TrialState(data["state"])
+
+            if state == TrialState.RUNNING and self.trials[number].state != TrialState.WAITING:
+                return
+
+            self.trials[number].state = state
+            if state.is_finished():
+                self.trials[number].datetime_complete = datetime.now()
+            if state == TrialState.RUNNING:
+                self.trials[number].owner = data["worker"]
         else:
             raise NotImplementedError("kind={}, data={}".format(kind, data))

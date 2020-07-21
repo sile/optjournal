@@ -23,6 +23,8 @@ from optjournal import _models
 from optjournal._models import _BaseModel
 from optjournal._study import _StudyState
 
+MAX_TRIAL_NUM = 1000000
+
 
 class RDBJournalStorage(BaseStorage):
     def __init__(self, database_url: str) -> None:
@@ -144,10 +146,12 @@ class RDBJournalStorage(BaseStorage):
         self._enqueue(study_id, _Operation.CREATE_TRIAL, data)
         self._sync(study_id)
 
-        trial = self._get_my_trial(study_id)
-        assert trial is not None
+        for trial in reversed(self._studies[study_id].trials):
+            if trial.owner == self._worker_id:
+                return trial._trial_id
 
-        return trial.id
+    def _get_study_id(self, trial_id: int) -> int:
+        return trial_id // MAX_TRIAL_NUM
 
     def set_trial_state(self, trial_id: int, state: TrialState) -> bool:
         # TODO(sile): validate
@@ -157,7 +161,7 @@ class RDBJournalStorage(BaseStorage):
         self._enqueue(study_id, _Operation.SET_TRIAL_STATE, data)
         self._sync(study_id)
 
-        trial, _ = self._get_trial(trial_id)
+        trial = self.get_trial(trial_id)
         if state == TrialState.RUNNING and trial.owner != self._worker_id:
             return False
 
@@ -170,12 +174,14 @@ class RDBJournalStorage(BaseStorage):
         param_value_internal: float,
         distribution: "distributions.BaseDistribution",
     ) -> bool:
-        trial, study_id = self._get_trial(trial_id)
+        trial = self.get_trial(trial_id)
         if param_name in trial.params:
             return False
 
+        study_id = self._get_study_id(trial_id)
+        param_value = distribution.to_external_repr(param_value_internal)
         trial.params[param_name] = param_value
-        trial.distributios[param_name] = distributio
+        trial.distributions[param_name] = distribution
 
         data = {
             "trial_id": trial_id,
@@ -187,11 +193,10 @@ class RDBJournalStorage(BaseStorage):
         return True
 
     def get_trial_number_from_id(self, trial_id: int) -> int:
-        trial, _ = self._get_trial(trial_id)
-        return trial.number
+        return trial_id % MAX_TRIAL_NUM
 
     def get_trial_param(self, trial_id: int, param_name: str) -> float:
-        trial, _ = self._get_trial(trial_id)
+        trial = self.get_trial(trial_id)
         return trial.distributions[param_name].to_external_repr(trial.params[param_name])
 
     def set_trial_value(self, trial_id: int, value: float) -> None:
@@ -227,8 +232,8 @@ class RDBJournalStorage(BaseStorage):
         self._sync(study_id)
 
     def get_trial(self, trial_id: int) -> "FrozenTrial":
-        trial, _ = self._get_trial(trial_id)
-        return trial
+        study_id = trial_id // MAX_TRIAL_NUM
+        return self._studies[study_id].trials[trial_id % MAX_TRIAL_NUM]
 
     def get_all_trials(self, study_id: int, deepcopy: bool = True) -> List["FrozenTrial"]:
         if deepcopy:
