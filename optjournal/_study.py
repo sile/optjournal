@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 from typing import Any
 from typing import Dict
 from typing import Optional
@@ -7,8 +8,10 @@ import optuna
 from optuna import distributions
 from optuna.trial import TrialState
 
+from optjournal import _models
 from optjournal._operation import _Operation
 
+# TODO: delete
 MAX_TRIAL_NUM = 1000000
 
 
@@ -56,8 +59,10 @@ class _Study(object):
         self.trials = []
         self.direction = optuna.study.StudyDirection.NOT_SET
 
-    def execute(self, op_id: int, kind: _Operation, data: Dict[str, Any]) -> None:
-        self.next_op_id = op_id + 1
+    def execute(self, op: _models.OperationModel) -> None:
+        self.next_op_id = op.id + 1
+        kind = op.kind
+        data = json.loads(op.data)
 
         if kind == _Operation.SET_STUDY_DIRECTION:
             self.direction = optuna.study.StudyDirection(data["direction"])
@@ -77,7 +82,7 @@ class _Study(object):
                 user_attrs={},
                 system_attrs={},
                 intermediate_values={},
-                owner=data["worker"],
+                owner=op.worker_id,
             )
             self.trials.append(trial)
         elif kind == _Operation.SET_TRIAL_PARAM:
@@ -107,7 +112,7 @@ class _Study(object):
                     number
                 ].datetime_complete = datetime.now()  # TODO: data["datetime_complete"]
             if state == TrialState.RUNNING:
-                self.trials[number].owner = data["worker"]
+                self.trials[number].owner = op.worker_id
         elif kind == _Operation.SET_TRIAL_SYSTEM_ATTR:
             number = data["trial_id"] % MAX_TRIAL_NUM
             self.trials[number].system_attrs[data["key"]] = data["value"]

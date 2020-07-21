@@ -1,9 +1,10 @@
 from typing import Any
-from typing import Callback
+from typing import Callable
 from typing import List
 from typing import Optional
 from typing import Tuple
 
+import optuna
 from sqlalchemy import asc
 from sqlalchemy.engine import create_engine
 from sqlalchemy.engine import Engine
@@ -44,6 +45,8 @@ class _Database(object):
         session = self._scoped_session()
         session.add(model)
         session.commit()
+
+        return model
 
     def _find_study(self, *conditions: Any) -> Optional[_models.StudyModel]:
         session = self._scoped_session()
@@ -91,7 +94,7 @@ class _Database(object):
 
         return models
 
-    def _retry(self, func: Callback[[], Any], retry_count: int = 0) -> Any:
+    def _retry(self, func: Callable[[], Any], retry_count: int = 0) -> Any:
         try:
             return func()
         except:

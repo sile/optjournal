@@ -108,24 +108,25 @@ class RDBJournalStorage(BaseStorage):
         if template_trial is not None:
             raise NotImplementedError
 
-        data = {"worker": self._worker_id}
-        self._enqueue_op(study_id, _Operation.CREATE_TRIAL, data)
+        self._enqueue_op(study_id, _Operation.CREATE_TRIAL, {})
         self._sync(study_id)
 
         for trial in reversed(self._studies[study_id].trials):
-            if trial.owner == self._worker_id:
+            if trial.owner == self._worker_id():
                 return trial._trial_id
+
+        assert False
 
     def set_trial_state(self, trial_id: int, state: TrialState) -> bool:
         # TODO(sile): validate
 
         study_id = _id.get_study_id(trial_id)
-        data = {"trial_id": trial_id, "state": state.value, "worker": self._worker_id}
+        data = {"trial_id": trial_id, "state": state.value}
         self._enqueue_op(study_id, _Operation.SET_TRIAL_STATE, data)
         self._sync(study_id)
 
         trial = self.get_trial(trial_id)
-        if state == TrialState.RUNNING and trial.owner != self._worker_id:
+        if state == TrialState.RUNNING and trial.owner != self._worker_id():
             return False
 
         return True
@@ -156,7 +157,7 @@ class RDBJournalStorage(BaseStorage):
         return True
 
     def get_trial_number_from_id(self, trial_id: int) -> int:
-        return trial_id % MAX_TRIAL_NUM
+        return _id.get_trial_number(trial_id)
 
     def get_trial_param(self, trial_id: int, param_name: str) -> float:
         trial = self.get_trial(trial_id)
@@ -195,8 +196,8 @@ class RDBJournalStorage(BaseStorage):
         self._sync(study_id)
 
     def get_trial(self, trial_id: int) -> "FrozenTrial":
-        study_id = trial_id // MAX_TRIAL_NUM
-        return self._studies[study_id].trials[trial_id % MAX_TRIAL_NUM]
+        study_id = _id.get_study_id(trial_id)
+        return self._studies[study_id].trials[_id.get_trial_number(trial_id)]
 
     def get_all_trials(self, study_id: int, deepcopy: bool = True) -> List["FrozenTrial"]:
         if study_id not in self._studies:
@@ -208,8 +209,9 @@ class RDBJournalStorage(BaseStorage):
             else:
                 return self._studies[study_id].trials[:]
 
-    def get_best_trial(self, study_id: int) -> "FrozenTrial":
-        raise NotImplementedError
+    # TODO
+    # def get_best_trial(self, study_id: int) -> "FrozenTrial":
+    #     raise NotImplementedError
 
     def read_trials_from_remote_storage(self, study_id: int) -> None:
         self._sync(study_id)
@@ -229,7 +231,7 @@ class RDBJournalStorage(BaseStorage):
             # Read operations.
             ops = self._db.read_operations(study_id, self._studies[study_id].next_op_id)
             for op in ops:
-                self._studies[study_id].execute(op.id, op.kind, json.loads(op.data))
+                self._studies[study_id].execute(op)
 
     # Lock-free internal methods.
     def _worker_id(self) -> str:
