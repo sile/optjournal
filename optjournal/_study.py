@@ -106,5 +106,11 @@ class _StudyState(object):
                 self.trials[number].datetime_complete = datetime.now()
             if state == TrialState.RUNNING:
                 self.trials[number].owner = data["worker"]
+        elif kind == _Operation.SET_TRIAL_SYSTEM_ATTR:
+            number = data["trial_id"] % MAX_TRIAL_NUM
+            self.trials[number].system_attrs[data["key"]] = data["value"]
+        elif kind == _Operation.SET_TRIAL_INTERMEDIATE_VALUE:
+            number = data["trial_id"] % MAX_TRIAL_NUM
+            self.trials[number].intermediate_values[data["step"]] = data["value"]
         else:
             raise NotImplementedError("kind={}, data={}".format(kind, data))

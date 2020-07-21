@@ -12,3 +12,4 @@ class _Operation(enum.Enum):
     SET_TRIAL_USER_ATTR = 7
     SET_TRIAL_SYSTEM_ATTR = 8
     SET_TRIAL_STATE = 9
+    SET_TRIAL_INTERMEDIATE_VALUE = 10

@@ -213,7 +213,7 @@ class RDBJournalStorage(BaseStorage):
         # TODO(ohta): validation
 
         study_id = self._get_study_id(trial_id)
-        data = {"trial_id": trial_id, "value": value, "step": step}
+        data = {"trial_id": trial_id, "value": intermediate_value, "step": step}
         self._enqueue(study_id, _Operation.SET_TRIAL_INTERMEDIATE_VALUE, data)
         self._sync(study_id)
 
