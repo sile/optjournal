@@ -28,7 +28,5 @@ class OperationModel(_BaseModel):
     __tablename__ = "operations"
     id = Column(Integer, primary_key=True)
     study_id = Column(Integer, ForeignKey("studies.id"), index=True, nullable=False)
-    trial_id = Column(Integer, nullable=True)
     kind = Column(Enum(_Operation), nullable=False)
     data = Column(String(1024), nullable=False)
-    worker_id = Column(String(36), nullable=False)

@@ -1,4 +1,5 @@
 import copy
+from datetime import datetime
 import json
 import threading
 from typing import Any
@@ -105,23 +106,38 @@ class RDBJournalStorage(BaseStorage):
     def create_new_trial(
         self, study_id: int, template_trial: Optional["FrozenTrial"] = None
     ) -> int:
-        if template_trial is not None:
-            raise NotImplementedError
+        data = {"datetime_start": datetime.now().timestamp(), "worker_id": self._worker_id()}
 
-        self._enqueue_op(study_id, _Operation.CREATE_TRIAL, {})
+        if template_trial is not None:
+            data["state"] = template_trial.state.value
+            if template_trial.value is not None:
+                data["value"] = template_trial.value
+            if template_trial.datetime_start is not None:
+                data["datetime_start"] = template_trial.datetime_start.timestamp()
+            if template_trial.datetime_complete is not None:
+                data["datetime_complete"] = template_trial.datetime_complete.timestamp()
+            if template_trial.params:
+                data["params"] = template_trial.params
+            if template_trial.distributions:
+                data["distributions"] = template_trial.distributions
+            if template_trial.user_attrs:
+                data["user_attrs"] = template_trial.user_attrs
+            if template_trial.system_attrs:
+                data["system_attrs"] = template_trial.system_attrs
+            if template_trial.intermediate_values:
+                data["intermediate_values"] = template_trial.intermediate_values
+
+        self._enqueue_op(study_id, _Operation.CREATE_TRIAL, data)
         self._sync(study_id)
 
-        for trial in reversed(self._studies[study_id].trials):
-            if trial.owner == self._worker_id():
-                return trial._trial_id
-
-        assert False
+        return self._studies[study_id].last_created_trial_ids[self._worker_id()]
 
     def set_trial_state(self, trial_id: int, state: TrialState) -> bool:
-        # TODO(sile): validate
-
         study_id = _id.get_study_id(trial_id)
-        data = {"trial_id": trial_id, "state": state.value}
+        data = {"trial_id": trial_id, "state": state.value, "worker_id": self._worker_id()}
+        if state.is_finished():
+            data["datetime_complete"] = datetime.now().timestamp()
+
         self._enqueue_op(study_id, _Operation.SET_TRIAL_STATE, data)
         self._sync(study_id)
 
@@ -139,6 +155,11 @@ class RDBJournalStorage(BaseStorage):
         distribution: "distributions.BaseDistribution",
     ) -> bool:
         trial = self.get_trial(trial_id)
+        if trial.owner != self._worker_id():
+            raise RuntimeError
+        if trial.state != TrialState.RUNNING:
+            raise RuntimeError
+
         if param_name in trial.params:
             return False
 
@@ -164,7 +185,11 @@ class RDBJournalStorage(BaseStorage):
         return trial.distributions[param_name].to_external_repr(trial.params[param_name])
 
     def set_trial_value(self, trial_id: int, value: float) -> None:
-        # TODO(ohta): validation
+        trial = self.get_trial(trial_id)
+        if trial.owner != self._worker_id():
+            raise RuntimeError
+        if trial.state != TrialState.RUNNING:
+            raise RuntimeError
 
         study_id = _id.get_study_id(trial_id)
         data = {"trial_id": trial_id, "value": value}
@@ -174,7 +199,11 @@ class RDBJournalStorage(BaseStorage):
     def set_trial_intermediate_value(
         self, trial_id: int, step: int, intermediate_value: float
     ) -> bool:
-        # TODO(ohta): validation
+        trial = self.get_trial(trial_id)
+        if trial.owner != self._worker_id():
+            raise RuntimeError
+        if trial.state != TrialState.RUNNING:
+            raise RuntimeError
 
         study_id = _id.get_study_id(trial_id)
         data = {"trial_id": trial_id, "value": intermediate_value, "step": step}
@@ -184,12 +213,24 @@ class RDBJournalStorage(BaseStorage):
         return True
 
     def set_trial_user_attr(self, trial_id: int, key: str, value: Any) -> None:
+        trial = self.get_trial(trial_id)
+        if trial.owner != self._worker_id():
+            raise RuntimeError
+        if trial.state != TrialState.RUNNING:
+            raise RuntimeError
+
         study_id = _id.get_study_id(trial_id)
         data = {"trial_id": trial_id, "key": key, "value": value}
         self._enqueue_op(study_id, _Operation.SET_TRIAL_USER_ATTR, data)
         self._sync(study_id)
 
     def set_trial_system_attr(self, trial_id: int, key: str, value: Any) -> None:
+        trial = self.get_trial(trial_id)
+        if trial.owner != self._worker_id():
+            raise RuntimeError
+        if trial.state != TrialState.RUNNING:
+            raise RuntimeError
+
         study_id = _id.get_study_id(trial_id)
         data = {"trial_id": trial_id, "key": key, "value": value}
         self._enqueue_op(study_id, _Operation.SET_TRIAL_SYSTEM_ATTR, data)
@@ -209,9 +250,8 @@ class RDBJournalStorage(BaseStorage):
             else:
                 return self._studies[study_id].trials[:]
 
-    # TODO
-    # def get_best_trial(self, study_id: int) -> "FrozenTrial":
-    #     raise NotImplementedError
+    def get_best_trial(self, study_id: int) -> "FrozenTrial":
+        return self._studies[study_id].best_trial
 
     def read_trials_from_remote_storage(self, study_id: int) -> None:
         self._sync(study_id)
@@ -231,7 +271,7 @@ class RDBJournalStorage(BaseStorage):
             # Read operations.
             ops = self._db.read_operations(study_id, self._studies[study_id].next_op_id)
             for op in ops:
-                self._studies[study_id].execute(op)
+                self._studies[study_id].execute(op, self._worker_id())
 
     # Lock-free internal methods.
     def _worker_id(self) -> str:
@@ -241,7 +281,5 @@ class RDBJournalStorage(BaseStorage):
         return self._worker_ids[threading.get_ident()]
 
     def _enqueue_op(self, study_id: int, kind: _Operation, data: Dict[str, Any]) -> None:
-        model = _models.OperationModel(
-            study_id=study_id, kind=kind, data=json.dumps(data), worker_id=self._worker_id()
-        )
+        model = _models.OperationModel(study_id=study_id, kind=kind, data=json.dumps(data))
         self._buffered_ops.append(model)
