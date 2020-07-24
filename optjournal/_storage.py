@@ -26,8 +26,8 @@ from optjournal._study import _Study
 
 class RDBJournalStorage(BaseStorage):
     def __init__(self, database_url: str) -> None:
-        if database_url is str:
-            self._db = _Database("/tmp/oj/")
+        if isinstance(database_url, str):
+            self._db = _Database(database_url)
         else:
             self._db = database_url
 

@@ -141,12 +141,13 @@ class _FileSystemDatabase(object):
         f.seek(next_op_id)
         ops = []
         while True:
-            try:
-                data = json.load(f)
-                ops.append(
-                    _models.OperationModel(id=f.tell(), study_id=study_id, data=json.dumps(data))
-                )
-            except json.decoder.JSONDecodeError:
+            line = f.readline()
+            if line[-1:] != "\n":
                 break
+
+            data = json.loads(line)
+            ops.append(
+                _models.OperationModel(id=f.tell() - 1, study_id=study_id, data=json.dumps(data))
+            )
 
         return ops
