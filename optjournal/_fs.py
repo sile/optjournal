@@ -132,6 +132,7 @@ class _FileSystemDatabase(object):
                 f.write(op.data)
                 f.write("\n")
             f.flush()
+            os.fdatasync(f.fileno())
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     def read_operations(self, study_id: int, next_op_id: int) -> List[_models.OperationModel]:
@@ -145,9 +146,15 @@ class _FileSystemDatabase(object):
             if line[-1:] != "\n":
                 break
 
-            data = json.loads(line)
-            ops.append(
-                _models.OperationModel(id=f.tell() - 1, study_id=study_id, data=json.dumps(data))
-            )
+            try:
+                data = json.loads(line)
+                ops.append(
+                    _models.OperationModel(
+                        id=f.tell() - 1, study_id=study_id, data=json.dumps(data)
+                    )
+                )
+            except:
+                print("# JSON: {}".format(line))
+                raise
 
         return ops
