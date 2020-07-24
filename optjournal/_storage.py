@@ -26,7 +26,11 @@ from optjournal._study import _Study
 
 class RDBJournalStorage(BaseStorage):
     def __init__(self, database_url: str) -> None:
-        self._db = _Database(database_url)
+        if database_url is str:
+            self._db = _Database("/tmp/oj/")
+        else:
+            self._db = database_url
+
         self._studies = {}  # type: Dict[int, _Study]
         self._buffered_ops = []  # type: List[_models.OperationModel]
         self._worker_ids = {}  # type: Dict[int, str]
