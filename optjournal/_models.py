@@ -18,15 +18,14 @@ _BaseModel = declarative_base()  # type: Any
 
 
 class StudyModel(_BaseModel):
-    __tablename__ = "studies"
+    __tablename__ = "optjournal_studies"
     __table_args__ = (UniqueConstraint("name"),)
     id = Column(Integer, primary_key=True)
     name = Column(String(256), index=True, nullable=False)
 
 
 class OperationModel(_BaseModel):
-    __tablename__ = "operations"
+    __tablename__ = "optjournal_operations"
     id = Column(Integer, primary_key=True)
-    study_id = Column(Integer, ForeignKey("studies.id"), index=True, nullable=False)
-    kind = Column(Enum(_Operation), nullable=False)
-    data = Column(String(1024), nullable=False)
+    study_id = Column(Integer, ForeignKey("optjournal_studies.id"), index=True, nullable=False)
+    data = Column(String(4096), nullable=False)

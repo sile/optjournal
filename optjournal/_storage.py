@@ -199,7 +199,7 @@ class RDBJournalStorage(BaseStorage):
         study_id = _id.get_study_id(trial_id)
         data = {"trial_id": trial_id, "value": value}
         self._enqueue_op(study_id, _Operation.SET_TRIAL_VALUE, data)
-        self._sync(study_id)
+        # self._sync(study_id)
 
     def set_trial_intermediate_value(
         self, trial_id: int, step: int, intermediate_value: float
@@ -286,5 +286,14 @@ class RDBJournalStorage(BaseStorage):
         return self._worker_ids[threading.get_ident()]
 
     def _enqueue_op(self, study_id: int, kind: _Operation, data: Dict[str, Any]) -> None:
-        model = _models.OperationModel(study_id=study_id, kind=kind, data=json.dumps(data))
-        self._buffered_ops.append(model)
+        data = json.dumps([kind.value, data])
+        last_op = self._buffered_ops[-1] if self._buffered_ops else None
+        if (
+            last_op is not None
+            and last_op.study_id == study_id
+            and len(last_op.data) + len(data) < 4096
+        ):
+            last_op.data = "{},{}".format(last_op.data[:-1], data[1:])
+        else:
+            model = _models.OperationModel(study_id=study_id, data=data)
+            self._buffered_ops.append(model)

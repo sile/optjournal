@@ -61,27 +61,31 @@ class _Study(object):
 
     def execute(self, op: _models.OperationModel, worker_id: str) -> None:
         self.next_op_id = op.id + 1
-        kind = op.kind
-        data = json.loads(op.data)
 
-        if kind == _Operation.SET_STUDY_DIRECTION:
-            self._set_study_direction(data, worker_id)
-        elif kind == _Operation.CREATE_TRIAL:
-            self._create_trial(data, worker_id)
-        elif kind == _Operation.SET_TRIAL_PARAM:
-            self._set_trial_param(data, worker_id)
-        elif kind == _Operation.SET_TRIAL_VALUE:
-            self._set_trial_value(data, worker_id)
-        elif kind == _Operation.SET_TRIAL_STATE:
-            self._set_trial_state(data, worker_id)
-        elif kind == _Operation.SET_TRIAL_SYSTEM_ATTR:
-            self._set_trial_system_attr(data, worker_id)
-        elif kind == _Operation.SET_TRIAL_USER_ATTR:
-            self._set_trial_system_attr(data, worker_id)
-        elif kind == _Operation.SET_TRIAL_INTERMEDIATE_VALUE:
-            self._set_trial_intermediate_value(data, worker_id)
-        else:
-            raise NotImplementedError("kind={}, data={}".format(kind, data))
+        items = json.loads(op.data)
+        n = len(items)
+        for i in range(n // 2):
+            kind, data = items[i * 2], items[i * 2 + 1]
+            kind = _Operation(kind)
+
+            if kind == _Operation.SET_STUDY_DIRECTION:
+                self._set_study_direction(data, worker_id)
+            elif kind == _Operation.CREATE_TRIAL:
+                self._create_trial(data, worker_id)
+            elif kind == _Operation.SET_TRIAL_PARAM:
+                self._set_trial_param(data, worker_id)
+            elif kind == _Operation.SET_TRIAL_VALUE:
+                self._set_trial_value(data, worker_id)
+            elif kind == _Operation.SET_TRIAL_STATE:
+                self._set_trial_state(data, worker_id)
+            elif kind == _Operation.SET_TRIAL_SYSTEM_ATTR:
+                self._set_trial_system_attr(data, worker_id)
+            elif kind == _Operation.SET_TRIAL_USER_ATTR:
+                self._set_trial_system_attr(data, worker_id)
+            elif kind == _Operation.SET_TRIAL_INTERMEDIATE_VALUE:
+                self._set_trial_intermediate_value(data, worker_id)
+            else:
+                raise NotImplementedError("kind={}, data={}".format(kind, data))
 
     def _set_study_direction(self, data: Dict[str, Any], worker_id: str) -> None:
         self.direction = optuna.study.StudyDirection(data["direction"])
