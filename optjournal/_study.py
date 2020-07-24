@@ -56,6 +56,8 @@ class _Study(object):
         self.next_op_id = 0
         self.trials = []
         self.direction = optuna.study.StudyDirection.NOT_SET
+        self.user_attrs = {}  # type: Dict[str,Any]
+        self.system_attrs = {}  # type: Dict[str,Any]
         self.best_trial = None  # type: Optional[optuna.trial.FrozenTrial]
         self.last_created_trial_ids = {}  # type: Dict[str,int]
 
@@ -84,6 +86,10 @@ class _Study(object):
                 self._set_trial_system_attr(data, worker_id)
             elif kind == _Operation.SET_TRIAL_INTERMEDIATE_VALUE:
                 self._set_trial_intermediate_value(data, worker_id)
+            elif kind == _Operation.SET_STUDY_USER_ATTR:
+                self._set_study_user_attr(data, worker_id)
+            elif kind == _Operation.SET_STUDY_SYSTEM_ATTR:
+                self._set_study_system_attr(data, worker_id)
             else:
                 raise NotImplementedError("kind={}, data={}".format(kind, data))
 
@@ -191,3 +197,9 @@ class _Study(object):
     def _set_trial_user_attr(self, data: Dict[str, Any], worker_id: str) -> None:
         number = _id.get_trial_number(data["trial_id"])
         self.trials[number].user_attrs[data["key"]] = data["value"]
+
+    def _set_study_user_attr(self, data: Dict[str, Any], worker_id: str) -> None:
+        self.user_attrs[data["key"]] = data["value"]
+
+    def _set_study_system_attr(self, data: Dict[str, Any], worker_id: str) -> None:
+        self.system_attrs[data["key"]] = data["value"]

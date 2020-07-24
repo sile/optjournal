@@ -34,6 +34,9 @@ class _Database(object):
     def delete_study(self, study_id: int) -> Optional[_models.StudyModel]:
         return self._retry(lambda: self._delete_study(study_id))
 
+    def get_all_studies(self) -> List[_models.StudyModel]:
+        return self._retry(lambda: self._get_all_studies())
+
     def append_operations(self, ops: List[_models.OperationModel]) -> None:
         self._retry(lambda: self._append_operations(ops))
 
@@ -73,6 +76,13 @@ class _Database(object):
         session.commit()
 
         return model
+
+    def _get_all_studies(self) -> List[_models.StudyModel]:
+        session = self._scoped_session()
+        cls = _models.StudyModel
+        models = session.query(cls).all()
+        session.commit()
+        return models
 
     def _append_operations(self, ops: List[_models.OperationModel]) -> None:
         if len(ops) == 0:

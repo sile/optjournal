@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 
 from optjournal._db import _Database
 from optjournal import _id
+from optjournal._lazy_study_summary import LazyStudySummary
 from optjournal._operation import _Operation
 from optjournal import _models
 from optjournal._study import _Study
@@ -105,8 +106,10 @@ class RDBJournalStorage(BaseStorage):
         self._sync(study_id)
         return self._studies[study_id].system_attrs
 
-    def get_all_study_summaries(self) -> List[study.StudySummary]:
-        raise NotImplementedError
+    def get_all_study_summaries(self) -> List["LazyStudySummary"]:
+        return [
+            LazyStudySummary(model.id, model.name, self) for model in self._db.get_all_studies()
+        ]
 
     def create_new_trial(
         self, study_id: int, template_trial: Optional["FrozenTrial"] = None
