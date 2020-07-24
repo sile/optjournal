@@ -75,7 +75,21 @@ class _Database(object):
         return model
 
     def _append_operations(self, ops: List[_models.OperationModel]) -> None:
+        if len(ops) == 0:
+            return
+
         session = self._scoped_session()
+
+        study_id = ops[0].study_id
+        cls = _models.OperationModel
+
+        model = (
+            session.query(cls)
+            .filter(cls.study_id == study_id)
+            .order_by(asc(cls.id))
+            .with_for_update()
+            .first()
+        )
         session.add_all(ops)
         session.commit()
 
