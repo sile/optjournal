@@ -60,8 +60,6 @@ class _Study(object):
         self.last_created_trial_ids = {}  # type: Dict[str,int]
 
     def execute(self, op: _models.OperationModel, worker_id: str) -> None:
-        assert self.next_op_id == op.id
-
         self.next_op_id = op.id + 1
         kind = op.kind
         data = json.loads(op.data)
