@@ -76,8 +76,7 @@ class _Database(object):
 
     def _append_operations(self, ops: List[_models.OperationModel]) -> None:
         session = self._scoped_session()
-        for model in ops:
-            session.add(model)
+        session.add_all(ops)
         session.commit()
 
     def _read_operations(self, study_id: int, next_op_id: int) -> List[_models.OperationModel]:
@@ -98,6 +97,9 @@ class _Database(object):
         try:
             return func()
         except:
+            session = self._scoped_session()
+            session.rollback()
+
             if retry_count >= MAX_RETRY_COUNT:
                 raise
 

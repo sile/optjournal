@@ -143,11 +143,10 @@ class _Study(object):
             else:
                 return
 
-            trial.owner = None
-
         trial.state = state
         if state.is_finished():
             trial.datetime_complete = datetime.fromtimestamp(data["datetime_complete"])
+            trial.owner = None
 
         if state == TrialState.RUNNING:
             self.trials[number].owner = data["worker_id"]

@@ -14,6 +14,7 @@ import optuna
 from optuna import study
 from optuna.storages import BaseStorage
 from optuna.trial import TrialState
+from sqlalchemy.exc import IntegrityError
 
 from optjournal._db import _Database
 from optjournal import _id
@@ -34,7 +35,11 @@ class RDBJournalStorage(BaseStorage):
         if study_name is None:
             study_name = str(uuid.uuid4())  # TODO: Align to Optuna's logic.
 
-        study = self._db.create_study(study_name)
+        try:
+            study = self._db.create_study(study_name)
+        except IntegrityError:
+            raise optuna.exceptions.DuplicatedStudyError
+
         return study.id
 
     def delete_study(self, study_id: int) -> None:
