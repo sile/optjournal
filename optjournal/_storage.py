@@ -287,22 +287,23 @@ class JournalStorage(BaseStorage):
             for op in ops:
                 self._studies[study_id].execute(op, self._worker_id())
 
+    def _enqueue_op(self, study_id: int, kind: _Operation, data: Dict[str, Any]) -> None:
+        data = json.dumps([kind.value, data])
+        with self._lock:
+            last_op = self._buffered_ops[-1] if self._buffered_ops else None
+            if (
+                last_op is not None
+                and last_op.study_id == study_id
+                and len(last_op.data) + len(data) < 4096
+            ):
+                last_op.data = "{},{}".format(last_op.data[:-1], data[1:])
+            else:
+                model = _models.OperationModel(study_id=study_id, data=data)
+                self._buffered_ops.append(model)
+
     # Lock-free internal methods.
     def _worker_id(self) -> str:
         if threading.get_ident() not in self._worker_ids:
             self._worker_ids[threading.get_ident()] = str(uuid.uuid4())
 
         return self._worker_ids[threading.get_ident()]
-
-    def _enqueue_op(self, study_id: int, kind: _Operation, data: Dict[str, Any]) -> None:
-        data = json.dumps([kind.value, data])
-        last_op = self._buffered_ops[-1] if self._buffered_ops else None
-        if (
-            last_op is not None
-            and last_op.study_id == study_id
-            and len(last_op.data) + len(data) < 4096
-        ):
-            last_op.data = "{},{}".format(last_op.data[:-1], data[1:])
-        else:
-            model = _models.OperationModel(study_id=study_id, data=data)
-            self._buffered_ops.append(model)
