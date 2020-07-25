@@ -10,13 +10,14 @@ from sqlalchemy.engine import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy import orm
 
+from optjournal._database import Database
 from optjournal import _models
 from optjournal._models import _BaseModel
 
 MAX_RETRY_COUNT = 2
 
 
-class _Database(object):
+class RDBDatabase(Database):
     def __init__(self, database_url: str) -> None:
         self._engine = create_engine(database_url)
         self._scoped_session = orm.scoped_session(orm.sessionmaker(bind=self._engine))

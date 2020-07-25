@@ -8,6 +8,7 @@ from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
+from typing import Union
 import uuid
 
 import optuna
@@ -16,20 +17,21 @@ from optuna.storages import BaseStorage
 from optuna.trial import TrialState
 from sqlalchemy.exc import IntegrityError
 
-from optjournal._db import _Database
+from optjournal._database import Database
 from optjournal import _id
 from optjournal._lazy_study_summary import LazyStudySummary
 from optjournal._operation import _Operation
 from optjournal import _models
+from optjournal._rdb import RDBDatabase
 from optjournal._study import _Study
 
 
-class RDBJournalStorage(BaseStorage):
-    def __init__(self, database_url: str) -> None:
-        if isinstance(database_url, str):
-            self._db = _Database(database_url)
+class JournalStorage(BaseStorage):
+    def __init__(self, database: Union[str, Database]) -> None:
+        if isinstance(database, str):
+            self._db = RDBDatabase(database)
         else:
-            self._db = database_url
+            self._db = database
 
         self._studies = {}  # type: Dict[int, _Study]
         self._buffered_ops = []  # type: List[_models.OperationModel]

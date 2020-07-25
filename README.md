@@ -8,7 +8,7 @@ Example
 -------
 
 ```python
-from optjournal import RDBJournalStorage
+from optjournal import JournalStorage
 import optuna
 
 
@@ -18,7 +18,7 @@ def objective(trial):
     return x * y
 
 
-storage = RDBJournalStorage("sqlite:///optuna.db")
+storage = JournalStorage("sqlite:///optuna.db")
 study = optuna.create_study(storage=storage)
 study.optimize(objective, n_trials=100)
 ```

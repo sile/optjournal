@@ -4,14 +4,14 @@ import optjournal
 
 
 def test_basic():
-    storage = optjournal.RDBJournalStorage("sqlite:///:memory:")
+    storage = optjournal.JournalStorage("sqlite:///:memory:")
     study = optuna.create_study(study_name="foo", storage=storage)
 
     study.optimize(lambda t: t.suggest_float("x", 0, 1), n_trials=10)
 
 
 def test_load_study():
-    storage = optjournal.RDBJournalStorage("sqlite:///:memory:")
+    storage = optjournal.JournalStorage("sqlite:///:memory:")
     study = optuna.create_study(study_name="foo", storage=storage)
     study.optimize(lambda t: t.suggest_float("x", 0, 1), n_trials=10)
 
@@ -23,7 +23,7 @@ def test_load_study():
 
 
 def test_get_all_study_summaries():
-    storage = optjournal.RDBJournalStorage("sqlite:///:memory:")
+    storage = optjournal.JournalStorage("sqlite:///:memory:")
     assert storage.get_all_study_summaries() == []
 
     study = optuna.create_study(study_name="foo", storage=storage)

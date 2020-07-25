@@ -16,10 +16,11 @@ from sqlalchemy.engine import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy import orm
 
+from optjournal._database import Database
 from optjournal import _models
 
 
-class _FileSystemDatabase(object):
+class FileSystemDatabase(Database):
     def __init__(self, root_dir: str) -> None:
         self._root_dir = Path(root_dir)
         self._root_dir.mkdir(parents=True, exist_ok=True)

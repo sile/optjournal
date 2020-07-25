@@ -6,7 +6,7 @@ import optuna
 
 
 class LazyStudySummary(object):
-    def __init__(self, study_id: int, study_name: str, storage: "RDBJournalStorage") -> None:
+    def __init__(self, study_id: int, study_name: str, storage: "JournalStorage") -> None:
         self.study_name = study_name
         self._study_id = study_id
         self._storage = storage
