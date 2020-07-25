@@ -43,6 +43,7 @@ class _FileSystemDatabase(object):
 
             f.seek(0)
             json.dump(metadata, f)
+            f.flush()
 
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
@@ -111,7 +112,7 @@ class _FileSystemDatabase(object):
     def _get_journal_file(self, study_id: int):  # TODO: return type
         if study_id not in self._files:
             path = self._root_dir.joinpath(str(study_id)).joinpath("journal.json")
-            self._files[study_id] = open(path, "w+")
+            self._files[study_id] = open(path, "a+")
 
         return self._files[study_id]
 
@@ -132,7 +133,6 @@ class _FileSystemDatabase(object):
                 f.write(op.data)
                 f.write("\n")
             f.flush()
-            os.fdatasync(f.fileno())
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     def read_operations(self, study_id: int, next_op_id: int) -> List[_models.OperationModel]:
