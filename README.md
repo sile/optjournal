@@ -3,6 +3,12 @@ optjournal
 
 Yet another Optuna RDB storage using journaling technique.
 
+Installation
+------------
+
+```
+pip install --user git+https://github.com/sile/optjournal.git
+```
 
 Example
 -------
