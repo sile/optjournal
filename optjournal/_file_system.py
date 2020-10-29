@@ -24,11 +24,11 @@ from optjournal import _models
 
 
 class FileSystemDatabase(Database):
-    def __init__(self, root_dir: str, avoid_flock: bool = False) -> None:
+    def __init__(self, root_dir: str, avoid_flock: bool = False, fsync: bool = False) -> None:
         self._root_dir = Path(root_dir)
         self._root_dir.mkdir(parents=True, exist_ok=True)
         if avoid_flock:
-            self._file_lock = LinkLockCreator()
+            self._file_lock = LinkLockCreator(fsync=fsync)
         else:
             self._file_lock = FcntlLock
 
@@ -170,7 +170,12 @@ class FcntlLock(object):
 
 class LinkLock(object):
     def __init__(
-        self, file, link_filename: str, readonly: bool = False, close: bool = True
+        self,
+        file,
+        link_filename: str,
+        readonly: bool = False,
+        close: bool = True,
+        fsync: bool = False,
     ) -> None:
         self._link_filepath = os.path.join(os.path.dirname(file.name), "lock/", link_filename)
         try:
@@ -181,16 +186,19 @@ class LinkLock(object):
         self._file = file
         self._close = close
         self._readonly = readonly
+        self._fsync = fsync
 
     def _lock(self):
         wait_ms = 10
-        while True:
+        for _ in range(30):
             os.link(self._file.name, self._link_filepath)
             if os.stat(self._file.fileno()).st_nlink == 2:
                 return
             os.unlink(self._link_filepath)
             time.sleep(random.uniform(0, wait_ms) / 1000)
-            wait_ms = min(wait_ms * 2, 10 * 60 * 1000)
+            wait_ms = min(wait_ms * 2, 10 * 1000)
+
+        raise RuntimeError("Cannot acquire file lock for {}".format(self._file.name))
 
     def _unlock(self):
         os.unlink(self._link_filepath)
@@ -200,17 +208,22 @@ class LinkLock(object):
         return self._file
 
     def __exit__(self, ex_type, ex_value, trace):
-        if not self._readonly:
-            self._file.flush()
+        try:
+            if not self._readonly:
+                self._file.flush()
+                if self._fsync:
+                    os.fsync(self._file.fileno())
+        finally:
+            self._unlock()
 
-        self._unlock()
         if self._close:
             self._file.close()
 
 
 class LinkLockCreator(object):
-    def __init__(self):
+    def __init__(self, fsync: bool = False):
         self._id = str(uuid.uuid4())
+        self._fsync = fsync
 
     def __call__(self, file, readonly: bool = False, close: bool = True) -> LinkLock:
-        return LinkLock(file, self._id, readonly, close)
+        return LinkLock(file, self._id, readonly, close, self._fsync)
