@@ -7,6 +7,7 @@ from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Optional
+from typing import Sequence
 from typing import Tuple
 from typing import Union
 import uuid
@@ -65,14 +66,14 @@ class JournalStorage(BaseStorage):
         self._enqueue_op(study_id, _Operation.SET_STUDY_SYSTEM_ATTR, {"key": key, "value": value})
         self._sync(study_id)
 
-    def set_study_direction(self, study_id: int, direction: study.StudyDirection) -> None:
-        self._enqueue_op(study_id, _Operation.SET_STUDY_DIRECTION, {"direction": direction.value})
+    def set_study_directions(self, study_id: int, directions: List[study.StudyDirection]) -> None:
+        self._enqueue_op(study_id, _Operation.SET_STUDY_DIRECTIONS, {"directions": [d.value for d in directions]})
         self._sync(study_id)
 
-        if self._studies[study_id].direction != direction:
+        if self._studies[study_id].directions != directions:
             raise ValueError(
-                "The direction of the study {} has already been set to {}, not {}.".format(
-                    study_id, self._studies[study_id].direction, direction
+                "The directions of the study {} has already been set to {}, not {}.".format(
+                    study_id, self._studies[study_id].directions, directions
                 )
             )
 
@@ -93,13 +94,13 @@ class JournalStorage(BaseStorage):
 
         return study.name
 
-    def get_study_direction(self, study_id: int) -> study.StudyDirection:
+    def get_study_directions(self, study_id: int) -> List[study.StudyDirection]:
         if study_id in self._studies:
-            if self._studies[study_id].direction != study.StudyDirection.NOT_SET:
-                return self._studies[study_id].direction
+            if self._studies[study_id].directions:
+                return self._studies[study_id].directions
 
         self._sync(study_id)
-        return self._studies[study_id].direction
+        return self._studies[study_id].directions
 
     def get_n_trials(self, study_id: int) -> int:
         return len(self.get_all_trials(study_id, deepcopy=False))
@@ -125,7 +126,7 @@ class JournalStorage(BaseStorage):
         if template_trial is not None:
             data["state"] = template_trial.state.value
             if template_trial.value is not None:
-                data["value"] = template_trial.value
+                data["values"] = template_trial.values
             if template_trial.datetime_start is not None:
                 data["datetime_start"] = template_trial.datetime_start.timestamp()
             if template_trial.datetime_complete is not None:
@@ -198,7 +199,7 @@ class JournalStorage(BaseStorage):
         trial = self.get_trial(trial_id)
         return trial.distributions[param_name].to_external_repr(trial.params[param_name])
 
-    def set_trial_value(self, trial_id: int, value: float) -> None:
+    def set_trial_values(self, trial_id: int, values: Sequence[float]) -> None:
         trial = self.get_trial(trial_id)
         if trial.owner != self._worker_id():
             raise RuntimeError
@@ -206,8 +207,8 @@ class JournalStorage(BaseStorage):
             raise RuntimeError
 
         study_id = _id.get_study_id(trial_id)
-        data = {"trial_id": trial_id, "value": value}
-        self._enqueue_op(study_id, _Operation.SET_TRIAL_VALUE, data)
+        data = {"trial_id": trial_id, "values": values}
+        self._enqueue_op(study_id, _Operation.SET_TRIAL_VALUES, data)
         # self._sync(study_id)
 
     def set_trial_intermediate_value(
@@ -254,15 +255,25 @@ class JournalStorage(BaseStorage):
         study_id = _id.get_study_id(trial_id)
         return self._studies[study_id].trials[_id.get_trial_number(trial_id)]
 
-    def get_all_trials(self, study_id: int, deepcopy: bool = True) -> List["FrozenTrial"]:
+    def get_all_trials(
+            self,
+            study_id: int,
+            deepcopy: bool = True,
+            states: Optional[Tuple[optuna.trial.TrialState, ...]] = None
+    ) -> List["FrozenTrial"]:
         if study_id not in self._studies:
             self._sync(study_id)
 
         with self._lock:
             if deepcopy:
-                return copy.deepcopy(self._studies[study_id].trials)
+                trials = copy.deepcopy(self._studies[study_id].trials)
             else:
-                return self._studies[study_id].trials[:]
+                trials = self._studies[study_id].trials[:]
+
+        if states is None:
+            return trials
+        else:
+            return [t for t in trials if t.state in states]
 
     def get_best_trial(self, study_id: int) -> "FrozenTrial":
         return self._studies[study_id].best_trial

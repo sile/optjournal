@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any
 from typing import Dict
+from typing import List
 
 import optuna
 
@@ -16,6 +17,11 @@ class LazyStudySummary(object):
     def direction(self) -> optuna.study.StudyDirection:
         self._init_summary()
         return self._summary.direction
+
+    @property
+    def directions(self) -> List[optuna.study.StudyDirection]:
+        self._init_summary()
+        return self._summary.directions
 
     @property
     def best_trial(self) -> optuna.trial.FrozenTrial:
@@ -51,7 +57,8 @@ class LazyStudySummary(object):
         self._summary = optuna.study.StudySummary(
             study_name=self.study_name,
             study_id=self._study_id,
-            direction=study.direction,
+            direction=study.directions[0],
+            directions=study.directions,
             best_trial=study.best_trial,
             user_attrs=study.user_attrs,
             system_attrs=study.system_attrs,

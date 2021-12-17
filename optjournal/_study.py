@@ -2,6 +2,7 @@ from datetime import datetime
 import json
 from typing import Any
 from typing import Dict
+from typing import List
 from typing import Optional
 
 import optuna
@@ -18,7 +19,7 @@ class _Trial(optuna.trial.FrozenTrial):
         self,
         number,  # type: int
         state,  # type: TrialState
-        value,  # type: Optional[float]
+        values,  # type: Optional[List[float]]
         datetime_start,  # type: Optional[datetime.datetime]
         datetime_complete,  # type: Optional[datetime.datetime]
         params,  # type: Dict[str, Any]
@@ -32,7 +33,8 @@ class _Trial(optuna.trial.FrozenTrial):
         super().__init__(
             number=number,
             state=state,
-            value=value,
+            value=None,
+            values=values,
             datetime_start=datetime_start,
             datetime_complete=datetime_complete,
             params=params,
@@ -55,11 +57,15 @@ class _Study(object):
         self.study_id = study_id
         self.next_op_id = 0
         self.trials = []
-        self.direction = optuna.study.StudyDirection.NOT_SET
+        self.directions = []  # type: List[optuna.study.StudyDirection]
         self.user_attrs = {}  # type: Dict[str,Any]
         self.system_attrs = {}  # type: Dict[str,Any]
         self.best_trial = None  # type: Optional[optuna.trial.FrozenTrial]
         self.last_created_trial_ids = {}  # type: Dict[str,int]
+
+    @property
+    def direction(self) -> optuna.study.StudyDirection:
+        return self.directions[0]
 
     def execute(self, op: _models.OperationModel, worker_id: str) -> None:
         self.next_op_id = op.id + 1
@@ -70,14 +76,14 @@ class _Study(object):
             kind, data = items[i * 2], items[i * 2 + 1]
             kind = _Operation(kind)
 
-            if kind == _Operation.SET_STUDY_DIRECTION:
-                self._set_study_direction(data, worker_id)
+            if kind == _Operation.SET_STUDY_DIRECTIONS:
+                self._set_study_directions(data, worker_id)
             elif kind == _Operation.CREATE_TRIAL:
                 self._create_trial(data, worker_id)
             elif kind == _Operation.SET_TRIAL_PARAM:
                 self._set_trial_param(data, worker_id)
-            elif kind == _Operation.SET_TRIAL_VALUE:
-                self._set_trial_value(data, worker_id)
+            elif kind == _Operation.SET_TRIAL_VALUES:
+                self._set_trial_values(data, worker_id)
             elif kind == _Operation.SET_TRIAL_STATE:
                 self._set_trial_state(data, worker_id)
             elif kind == _Operation.SET_TRIAL_SYSTEM_ATTR:
@@ -93,8 +99,8 @@ class _Study(object):
             else:
                 raise NotImplementedError("kind={}, data={}".format(kind, data))
 
-    def _set_study_direction(self, data: Dict[str, Any], worker_id: str) -> None:
-        self.direction = optuna.study.StudyDirection(data["direction"])
+    def _set_study_directions(self, data: Dict[str, Any], worker_id: str) -> None:
+        self.directions = [optuna.study.StudyDirection(d) for d in data["directions"]]
 
     def _create_trial(self, data: Dict[str, Any], worker_id: str) -> None:
         number = len(self.trials)
@@ -113,7 +119,7 @@ class _Study(object):
             trial_id=trial_id,
             number=number,
             state=state,
-            value=data.get("value"),
+            values=data.get("values"),
             datetime_start=datetime.fromtimestamp(data["datetime_start"]),
             datetime_complete=data.get("datetime_complete"),
             params=data.get("params", {}),
@@ -182,9 +188,9 @@ class _Study(object):
             data["distribution"]
         )
 
-    def _set_trial_value(self, data: Dict[str, Any], worker_id: str) -> None:
+    def _set_trial_values(self, data: Dict[str, Any], worker_id: str) -> None:
         number = _id.get_trial_number(data["trial_id"])
-        self.trials[number].value = data["value"]
+        self.trials[number].values = data["values"]
 
     def _set_trial_intermediate_value(self, data: Dict[str, Any], worker_id: str) -> None:
         number = _id.get_trial_number(data["trial_id"])
