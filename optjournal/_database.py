@@ -33,3 +33,9 @@ class Database(object, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def read_operations(self, study_id: int, next_op_id: int) -> List[_models.OperationModel]:
         raise NotImplementedError
+
+    def save_snapshot(self, snapshot: _models.SnapshotModel) -> None:
+        return
+
+    def load_snapshot(self, study_id: int, snapshot_name: str) -> Optional[_models.SnapshotModel]:
+        return None

@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import pickle
 from typing import Any
 from typing import Dict
 from typing import List
@@ -209,3 +210,59 @@ class _Study(object):
 
     def _set_study_system_attr(self, data: Dict[str, Any], worker_id: str) -> None:
         self.system_attrs[data["key"]] = data["value"]
+
+
+class _StudySummary(_Study):
+    def __init__(self, study_id: int) -> None:
+        super().__init__(study_id)
+        self.n_trials = 0
+        self.datetime_start = None  # type: Optuna[datetime.Datetime]
+        self.trials = {}
+
+    def _create_trial(self, data: Dict[str, Any], worker_id: str) -> None:
+        number = self.n_trials
+        trial_id = _id.make_trial_id(self.study_id, number)
+
+        if "datetime_complete" in data:
+            data["datetime_complete"] = datetime.fromtimestamp(data["datetime_complete"])
+
+        if self.datetime_start is None:
+            self.datetime_start = datetime.fromtimestamp(data["datetime_start"])
+
+        state = TrialState(data.get("state", TrialState.RUNNING.value))
+
+        owner = None
+        if state == TrialState.RUNNING:
+            owner = data["worker_id"]
+
+        trial = _Trial(
+            trial_id=trial_id,
+            number=number,
+            state=state,
+            values=data.get("values"),
+            datetime_start=datetime.fromtimestamp(data["datetime_start"]),
+            datetime_complete=data.get("datetime_complete"),
+            params=data.get("params", {}),
+            distributions=data.get("distributions", {}),
+            user_attrs=data.get("user_attrs", {}),
+            system_attrs=data.get("system_attrs", {}),
+            intermediate_values=data.get("intermediate_values", {}),
+            owner=owner,
+        )
+        self.trials[number] = trial
+        self.n_trials += 1
+
+    def _set_trial_state(self, data: Dict[str, Any], worker_id: str) -> None:
+        super()._set_trial_state(data, worker_id)
+        state = TrialState(data["state"])
+        if state.is_finished():
+            number = _id.get_trial_number(data["trial_id"])
+            del self.trials[number]
+
+    def serialize(self) -> bytes:
+        # FIXME: Don't use pickle
+        return pickle.dumps(self)
+
+    def deserialize(data: bytes) -> '_StudySummary':
+        # FIXME: Don't use pickle
+        return pickle.loads(data)

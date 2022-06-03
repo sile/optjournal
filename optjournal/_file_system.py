@@ -132,6 +132,25 @@ class FileSystemDatabase(Database):
 
         return ops
 
+    def save_snapshot(self, snapshot: _models.SnapshotModel) -> None:
+        path = self._snapshot_path(snapshot.study_id, snapshot.name)
+        tmp_path = self._snapshot_path(snapshot.study_id, snapshot.name + "." + str(uuid.uuid4()))
+        with open(tmp_path, 'wb') as f:
+            f.write(snapshot.data)
+        os.replace(tmp_path, path)
+
+    def load_snapshot(self, study_id: int, snapshot_name: str) -> Optional[_models.SnapshotModel]:
+        path = self._snapshot_path(study_id, snapshot_name)
+        try:
+            with open(path, 'rb') as f:
+                return _models.SnapshotModel(
+                    study_id=study_id,
+                    name=snapshot_name,
+                    data=f.read(),
+                )
+        except FileNotFoundError:
+            return None
+
     def _index_path(self):
         return self._root_dir.joinpath("index.json")
 
@@ -143,6 +162,9 @@ class FileSystemDatabase(Database):
             self._files[study_id] = open(self._journal_path(study_id), "a+")
 
         return self._files[study_id]
+
+    def _snapshot_path(self, study_id: int, snapshot_name: str):
+        return self._root_dir.joinpath(str(study_id)).joinpath(f"{snapshot_name}.snapshot")
 
 
 class FcntlLock(object):

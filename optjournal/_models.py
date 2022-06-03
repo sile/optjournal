@@ -29,3 +29,12 @@ class OperationModel(_BaseModel):
     id = Column(Integer, primary_key=True)
     study_id = Column(Integer, ForeignKey("optjournal_studies.id"), index=True, nullable=False)
     data = Column(String(4096), nullable=False)
+
+
+class SnapshotModel(_BaseModel):
+    __tablename__ = "optjornal_snapshot"
+    __table_args__ = (UniqueConstraint("study_id", "name"),)
+    id = Column(Integer, primary_key=True)
+    study_id = Column(Integer, ForeignKey("optjournal_studies.id"), index=True, nullable=False)
+    name = Column(String(256), index=True, nullable=False)
+    data = Column(LargeBinary, nullable=False)
