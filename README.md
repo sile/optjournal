@@ -1,7 +1,8 @@
 optjournal
 ==========
 
-Yet another Optuna RDB storage using journaling technique.
+Yet another Optuna RDB storage using journaling technique ([Japanese Blog](https://zenn.dev/sile/articles/335fe2213f9204)
+).
 
 Installation
 ------------
